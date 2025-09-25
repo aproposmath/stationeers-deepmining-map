@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>TopoJSON Viewer with Color, Labels, and Filter</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+    }
+
+    svg {
+      border: 0px solid #ccc;
+    }
+
+    path {
+      stroke: #333;
+      stroke-width: 0.5px;
+      cursor: pointer;
+    }
+
+    text {
+      font-size: 10px;
+      fill: #111;
+      pointer-events: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: lightgray;
+      /* border: 0px solid #ccc; */
+      padding: 5px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="fileButtons" style="margin: 10px;">
+    <button data-file="europa.topojson">Europa</button>
+    <button data-file="lunar.topojson">Lunar</button>
+    <button data-file="mars.topojson">Mars</button>
+    <button data-file="mimas.topojson">Mimas</button>
+    <button data-file="venus.topojson">Venus</button>
+    <button data-file="vulcan.topojson">Vulcan</button>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <div style="display: flex;">
+    <div style="flex: 1; padding: 10px; border: 0px solid #ccc;">
+      <svg width="800" height="800"></svg>
+    </div>
+    <div style="flex: 1; padding: 10px; border: 0px solid #ccc;">
+      <div id="colorFilter"></div>
+      <div id="colorLegend" style="margin-top: 10px;"></div>
+
+    </div>
+  </div>
+
+  <script>
+    const svg = d3.select("svg");
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
+    const tooltip = d3.select("#tooltip");
+
+    const colorFilter = d3.select("#colorFilter");
+
+    let allFeatures = []; // Keep a reference for filtering
+
+    loadMap("lunar.topojson"); // default map
+
+    function loadMap(filename) {
+      d3.json(filename).then(topoData => {
+
+        const geojson = topojson.feature(topoData, topoData.objects.data);
+
+        // Save all features
+        allFeatures = geojson.features;
+
+        // Extract unique colors for filter checkboxes
+        const uniqueColors = Array.from(new Set(allFeatures.map(f => f.properties.color_hex)))
+          .filter(c => c); // remove undefined
+
+        const color2Name = {};
+
+        allFeatures.forEach(f => {
+          if (f.properties.color_hex)
+            color2Name[f.properties.color_hex] = f.properties.name;
+        });
+
+        // Add "All" checkbox for convenience
+        colorFilter.append("label")
+          .html(`<input type="checkbox" value="all" checked> All`)
+          .style("margin-right", "10px")
+          .style("display", "block")
+          ;
+
+        uniqueColors.forEach(color => {
+          colorFilter.append("label")
+            .html(`<input type="checkbox" value="${color}"> <span style="color:${color}">${color2Name[color]}</span>`)
+            .style("display", "block")
+            .style("margin-right", "10px");
+        });
+
+        // Helper to get selected colors (excluding 'all')
+        function getSelectedColors() {
+          const checked = colorFilter.selectAll("input[type=checkbox]:checked").nodes();
+          const values = checked.map(input => input.value);
+          if (values.includes("all") || values.length === 0) return null; // null means all selected
+          return values;
+        }
+
+        // Checkbox behavior: if "All" is checked, uncheck others; if any other checked, uncheck "All"
+        colorFilter.selectAll("input[type=checkbox]").on("change", function () {
+          if (this.value === "all") {
+            if (this.checked) {
+              colorFilter.selectAll("input[type=checkbox]").property("checked", false);
+              this.checked = true;
+            }
+          } else {
+            if (this.checked) {
+              colorFilter.select("input[value=all]").property("checked", false);
+            }
+            // If none checked, check "All"
+            if (colorFilter.selectAll("input[type=checkbox]:checked").nodes().length === 0) {
+              colorFilter.select("input[value=all]").property("checked", true);
+            }
+          }
+          updateRender();
+        });
+
+
+
+        const projection = d3.geoIdentity().reflectY(true).fitSize([width, height], geojson);
+        const path = d3.geoPath().projection(projection);
+
+        const zoom = d3.zoom()
+          .scaleExtent([1, 8])
+          .on("zoom", (event) => {
+            svg.selectAll("g").attr("transform", event.transform);
+          });
+
+        // Wrap all map elements in a <g> for zoom transform
+        svg.append("g").attr("class", "mapGroup");
+
+        zoom.on("start", (ev) => {
+          tooltip.style("opacity", 0.0);
+        }
+        );
+
+
+        svg.on("mousemove", function (event) {
+          // Get mouse position in screen coords
+          const [mouseX, mouseY] = d3.pointer(event);
+
+          // Use the inverse of the current zoom transform to map back to SVG coords
+          const transform = d3.zoomTransform(svg.node());
+          const svgX = (mouseX - transform.x) / transform.k;
+          const svgY = (mouseY - transform.y) / transform.k;
+
+          const x = Math.round((svgX / 800 - 0.5) * 4000);
+          const y = Math.round((0.5 - svgY / 800) * 4000);
+
+          tooltip
+            .style("opacity", 1)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY + 20) + "px")
+            .html(`
+<strong>X:</strong> ${x} <br/>
+<strong>Y:</strong> ${y} 
+        `);
+        });
+
+        function render(filteredFeatures, applyColor) {
+          const g = svg.select(".mapGroup");
+          g.selectAll("*").remove();
+
+          const regions = g.selectAll("path")
+            .data(allFeatures)
+            .enter()
+            .append("path")
+            .attr("d", path)
+            .attr("fill", d => {
+              const c = d.properties.color_hex || "transparent";
+              return filteredFeatures.includes(d) ? (c || "transparent") : "transparent";
+            });
+          // .on("mouseover", (event, d) => {
+          //   tooltip
+          //     .style("opacity", 1)
+          //     .style("left", (event.pageX + 10) + "px")
+          //     .style("top", (event.pageY - 20) + "px")
+          //     .html(`
+          //   <strong>ID:</strong> ${d.properties.DN}<br/>
+          //   <strong>Color:</strong> ${d.properties.color_hex}
+          // `);
+          // })
+          // .on("mouseout", () => {
+          //   tooltip.style("opacity", 0);
+          // });
+
+
+          g.selectAll("text")
+            .data(allFeatures)
+            .enter()
+            .append("text")
+            .attr("transform", d => {
+              const centroid = path.centroid(d);
+              return `translate(${centroid[0]}, ${centroid[1]})`;
+            })
+            .attr("text-anchor", "middle")
+            .attr("alignment-baseline", "middle")
+            .each(function (d) {
+              const textEl = d3.select(this);
+              const lines = d.properties.name?.split(" ") || [];
+              const lineHeightEm = 1.2;
+              const offset = -((lines.length - 1) / 2) * lineHeightEm;
+
+              lines.forEach((line, i) => {
+                textEl.append("tspan")
+                  .attr("x", 0)
+                  .attr("dy", (i === 0 ? offset : lineHeightEm) + "em")
+                  .text(line);
+              });
+            });
+
+        }
+
+        svg.call(zoom);
+
+        const colorLegend = d3.select("#colorLegend");
+
+        function updateLegend(selectedColors) {
+          return;
+          colorLegend.selectAll("*").remove();
+          const colorsToShow = selectedColors || uniqueColors;
+          colorsToShow.forEach(color => {
+            const item = colorLegend.append("div").style("display", "block").style("margin-right", "10px").style("font-size", "12px").style("user-select", "none");
+            item.append("span")
+              .style("display", "inline-block")
+              .style("width", "12px")
+              .style("height", "12px")
+              .style("background-color", color)
+              .style("margin-right", "4px")
+              .style("border", "0px solid #999");
+            item.append("span").text(color);
+          });
+        }
+
+        function updateRender() {
+          const selectedColors = getSelectedColors();
+          updateLegend(selectedColors);
+          if (!selectedColors) {
+            render(allFeatures, true);
+          } else {
+            const filteredFeatures = allFeatures.filter(f => selectedColors.includes(f.properties.color_hex));
+            render(filteredFeatures, true);
+          }
+        }
+
+        // Initial render
+        updateRender();
+
+      });
+    }
+
+    // Add event listeners to buttons
+    d3.selectAll("#fileButtons button").on("click", function () {
+      const file = d3.select(this).attr("data-file");
+      svg.select(".mapGroup").remove(); // clear old map
+      colorFilter.selectAll("*").remove(); // clear filters
+      loadMap(file);
+    });
+  </script>
+</body>
+
+</html>
