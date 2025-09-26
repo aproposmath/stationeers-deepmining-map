@@ -216,7 +216,7 @@ def build_data(name, world_file):
     alldata["start_locations"] = find_start_locations(root)
     for name, data in [("mining", mining_data), ("poi", poi_data), ("names", names_data)]:
         alldata[name] = Topology(data).to_dict() #str(output_prefix) + f"_{name}.topojson")
-    json.dump(alldata, open(str(output_prefix) + f".topojson", "w"))
+    json.dump(alldata, open(str(output_prefix) + f".json", "w"))
 
 
 worlds = {
