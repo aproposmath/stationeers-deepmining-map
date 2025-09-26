@@ -30,7 +30,6 @@
     .tooltip {
       position: absolute;
       background: lightgray;
-      /* border: 0px solid #ccc; */
       padding: 5px;
       font-size: 12px;
       pointer-events: none;
@@ -40,13 +39,24 @@
 </head>
 
 <body>
-  <div id="fileButtons" style="margin: 10px;">
-    <button data-file="europa.topojson">Europa</button>
-    <button data-file="lunar.topojson">Lunar</button>
-    <button data-file="mars.topojson">Mars</button>
-    <button data-file="mimas.topojson">Mimas</button>
-    <button data-file="venus.topojson">Venus</button>
-    <button data-file="vulcan.topojson">Vulcan</button>
+  <div id="fileButtons" style="margin: 10px; width: 800px;">
+
+    <div style="margin: 10px; display: flex; gap: 10px;">
+      <div id="planetButtons">
+        <button data-file="lunar">Lunar</button>
+        <button data-file="europa">Europa</button>
+        <button data-file="mars">Mars</button>
+        <button data-file="mimas">Mimas</button>
+        <button data-file="venus">Venus</button>
+        <button data-file="vulcan">Vulcan</button>
+      </div>
+
+      <div id="regionTypeButtons" style="margin-left: auto; display: flex; gap: 10px;">
+        <button data-region="mining">Mining</button>
+        <button data-region="names">Names</button>
+        <button data-region="poi">POI</button>
+      </div>
+    </div>
   </div>
 
   <div class="tooltip" id="tooltip"></div>
@@ -56,9 +66,14 @@
       <svg width="800" height="800"></svg>
     </div>
     <div style="flex: 1; padding: 10px; border: 0px solid #ccc;">
+      <label style="display: block; margin-top: 10px;">
+        <input type="checkbox" id="toggleTerrain" checked> Terrain
+      </label>
+      <label style="display: block;">
+        <input type="checkbox" id="toggleSpawn"> Start Locations
+      </label>
+      <label style="display: block; margin-top: 20px; margin-bottom: 5px;">Regions</label>
       <div id="colorFilter"></div>
-      <div id="colorLegend" style="margin-top: 10px;"></div>
-
     </div>
   </div>
 
@@ -70,25 +85,235 @@
 
     const colorFilter = d3.select("#colorFilter");
 
-    let allFeatures = []; // Keep a reference for filtering
+    let allData = {};
 
-    loadMap("lunar.topojson"); // default map
+    const zoom = d3.zoom()
+      .scaleExtent([1, 8])
+      .on("zoom", (event) => {
+        svg.selectAll("g").attr("transform", event.transform);
+      });
 
-    function loadMap(filename) {
-      d3.json(filename).then(topoData => {
+    let currentPlanet = null;
+    let currentRegionType = null;
+    let mapWidth = 4000;
+    let mapHeight = 4000;
 
-        const geojson = topojson.feature(topoData, topoData.objects.data);
+    let updateRender = () => { };
+    let render = () => { };
 
-        // Save all features
-        allFeatures = geojson.features;
+    loadMap("lunar", "mining");
 
-        // Extract unique colors for filter checkboxes
-        const uniqueColors = Array.from(new Set(allFeatures.map(f => f.properties.color_hex)))
+    async function loadData(planet) {
+
+      const raw = await d3.json(`data/${planet}.topojson`);
+
+      const data = {};
+
+      for (const key in raw) {
+        if (['mining', 'names', 'poi'].includes(key)) {
+          const topoData = topojson.feature(raw[key], raw[key].objects.data);
+          data[key] = topoData;
+        }
+        else {
+          data[key] = raw[key];
+        }
+      }
+      return data;
+
+
+      const get = async (name) => {
+        const data = await d3.json(`data/${planet}_${name}.topojson`)
+        const topoData = topojson.feature(data, data.objects.data);
+        return topoData;
+      }
+
+      return {
+        mining: await get("mining"),
+        names: await get("names"),
+        poi: await get("poi"),
+      }
+    }
+
+    async function loadMap(planet, regionType) {
+      currentPlanet = planet;
+      currentRegionType = regionType;
+
+      svg.select(".mapGroup").remove(); // clear old map
+      svg.call(zoom.transform, d3.zoomIdentity);
+
+      const allData = await loadData(planet);
+      const geojson = allData[regionType];
+      const poiData = allData.poi;
+
+      // Helper to get selected colors (excluding 'all')
+      function getSelectedColors() {
+        const checked = colorFilter.selectAll("input[type=checkbox]:checked").nodes();
+        const values = checked.map(input => input.value);
+        if (values.includes("all")) return true;
+        return new Set(values);
+      }
+
+
+      const projection = d3.geoIdentity().reflectY(true).fitSize([width, height], geojson);
+      const path = d3.geoPath().projection(projection);
+      svg.selectAll("g").remove();
+      const g = svg.append("g").attr("class", "imageGroup");
+      const terrainImage = g.append("image")
+        .attr("class", "terrainImage")
+        .attr("href", `data/${planet}_terrain.webp`)
+        // .attr("href", "Vulcan_Minimap.png")
+        .attr("x", 0)
+        .attr("y", 0)
+        .attr("width", width)
+        .attr("height", height)
+        .attr("preserveAspectRatio", "xMidYMid meet")
+        .attr("opacity", 1.0);
+
+      const hideTooltip = () => {tooltip.style("opacity", 0.0)};
+      svg.on("mouseleave", hideTooltip)
+
+      svg.on("mousemove", function (event) {
+        // Get mouse position in screen coords
+        const [mouseX, mouseY] = d3.pointer(event);
+
+        // Use the inverse of the current zoom transform to map back to SVG coords
+        const transform = d3.zoomTransform(svg.node());
+        const svgX = (mouseX - transform.x) / transform.k;
+        const svgY = (mouseY - transform.y) / transform.k;
+
+        const x = Math.round((svgX / 800 - 0.5) * mapWidth);
+        const y = Math.round((0.5 - svgY / 800) * mapHeight);
+
+        tooltip
+          .style("opacity", 1)
+          .style("left", (event.pageX + 10) + "px")
+          .style("top", (event.pageY + 20) + "px")
+          .html(`
+              <strong>X:</strong> ${x} <br/>
+              <strong>Y:</strong> ${y} <br/>`);
+      });
+
+      function renderRegions(regionType, opacity, selectedColors) {
+        svg.select("." + regionType).remove();
+        const g = svg.append("g").attr("class", regionType);
+        const currentTransform = d3.zoomTransform(svg.node());
+        g.attr("transform", currentTransform);
+        const data = allData[regionType];
+
+        const allFeatures = data.features;
+        const filteredFeatures = data.filteredFeatures || allFeatures;
+
+        const isVisible = (d) => {
+          if (selectedColors === undefined) return true;
+          if (selectedColors === true) return true;
+          const col = d.properties.color_hex;
+          if (col === undefined) return true;
+          return selectedColors.has(col);
+        };
+
+        const regions = g.selectAll("path")
+          .data(allFeatures)
+          .enter()
+          .append("path")
+          .attr("d", path)
+          .style("opacity", opacity)
+          .attr("fill", d => {
+            const c = d.properties.color_hex || "transparent";
+            return isVisible(d) ? c : "transparent";
+          })
+          .style("mix-blend-mode", "multiply")
+          ;
+        g.selectAll("text")
+          .data(allFeatures)
+          .enter()
+          .append("text")
+          .style("font-size", "14px")
+          .style("fill", "white")
+          .style("stroke", "black")
+          .style("stroke-width", "2px")
+          .style("paint-order", "stroke")
+          .attr("transform", d => {
+            const centroid = path.centroid(d);
+            return `translate(${centroid[0]}, ${centroid[1]})`;
+          })
+          .attr("text-anchor", "middle")
+          .attr("alignment-baseline", "middle")
+          .each(function (d) {
+            if (isVisible(d) === false) return;
+            const textEl = d3.select(this);
+            const lines = d.properties.name?.split(" ") || [];
+            const lineHeightEm = 1.2;
+            const offset = -((lines.length - 1) / 2) * lineHeightEm;
+
+            lines.forEach((line, i) => {
+              textEl.append("tspan")
+                .attr("x", 0)
+                .attr("dy", (i === 0 ? offset : lineHeightEm) + "em")
+                .text(line);
+            });
+          });
+
+      }
+
+      render = () => {
+        const showTerrain = document.getElementById("toggleTerrain").checked;
+        const showSpawn = document.getElementById("toggleSpawn").checked;
+
+        svg.select(".terrainImage").attr("visibility", showTerrain ? "visible" : "hidden");
+
+        zoom.on("start", hideTooltip)
+
+        const regionType = currentRegionType;
+        svg.select(".mining").remove();
+        svg.select(".names").remove();
+        svg.select(".poi").remove();
+        svg.select(".spawn").remove();
+        const opacity = showTerrain || showSpawn ? 0.7 : 1.0;
+
+        const selectedColors = getSelectedColors();
+        renderRegions(regionType, opacity, selectedColors);
+
+        const spawn = svg.append("g").attr("class", "spawn");
+        spawn.attr("visibility", showSpawn ? "visible" : "hidden");
+        const currentTransform = d3.zoomTransform(svg.node());
+        spawn.attr("transform", currentTransform);
+
+        Object.entries(allData.start_locations).forEach(([name, coords]) => {
+          const [x, y] = projection([coords[0] / mapWidth + 0.5, coords[1] / mapHeight + 0.5]); // assumes coords are in geo space
+
+          spawn.append("circle")
+            .attr("cx", x)
+            .attr("cy", y)
+            .attr("r", 5)
+            .attr("fill", "red")
+            .attr("stroke", "black")
+            .attr("stroke-width", 1);
+
+          spawn.append("text")
+            .attr("x", x + 7)
+            .attr("y", y - 7)
+            .text(name)
+            .style("font-size", "14px")
+            .style("fill", "white")
+            .style("stroke", "black")
+            .style("stroke-width", "2px")
+            .style("paint-order", "stroke")
+        });
+
+      }
+
+      svg.call(zoom);
+
+      updateRender = () => {
+        colorFilter.selectAll("*").remove(); // clear filters
+        const data = allData[currentRegionType].features;
+
+        const uniqueColors = Array.from(new Set(data.map(f => f.properties.color_hex)))
           .filter(c => c); // remove undefined
 
         const color2Name = {};
 
-        allFeatures.forEach(f => {
+        data.forEach(f => {
           if (f.properties.color_hex)
             color2Name[f.properties.color_hex] = f.properties.name;
         });
@@ -106,15 +331,6 @@
             .style("display", "block")
             .style("margin-right", "10px");
         });
-
-        // Helper to get selected colors (excluding 'all')
-        function getSelectedColors() {
-          const checked = colorFilter.selectAll("input[type=checkbox]:checked").nodes();
-          const values = checked.map(input => input.value);
-          if (values.includes("all") || values.length === 0) return null; // null means all selected
-          return values;
-        }
-
         // Checkbox behavior: if "All" is checked, uncheck others; if any other checked, uncheck "All"
         colorFilter.selectAll("input[type=checkbox]").on("change", function () {
           if (this.value === "all") {
@@ -131,150 +347,27 @@
               colorFilter.select("input[value=all]").property("checked", true);
             }
           }
-          updateRender();
+          render();
         });
 
+        render();
+      }
 
-
-        const projection = d3.geoIdentity().reflectY(true).fitSize([width, height], geojson);
-        const path = d3.geoPath().projection(projection);
-
-        const zoom = d3.zoom()
-          .scaleExtent([1, 8])
-          .on("zoom", (event) => {
-            svg.selectAll("g").attr("transform", event.transform);
-          });
-
-        // Wrap all map elements in a <g> for zoom transform
-        svg.append("g").attr("class", "mapGroup");
-
-        zoom.on("start", (ev) => {
-          tooltip.style("opacity", 0.0);
-        }
-        );
-
-
-        svg.on("mousemove", function (event) {
-          // Get mouse position in screen coords
-          const [mouseX, mouseY] = d3.pointer(event);
-
-          // Use the inverse of the current zoom transform to map back to SVG coords
-          const transform = d3.zoomTransform(svg.node());
-          const svgX = (mouseX - transform.x) / transform.k;
-          const svgY = (mouseY - transform.y) / transform.k;
-
-          const x = Math.round((svgX / 800 - 0.5) * 4000);
-          const y = Math.round((0.5 - svgY / 800) * 4000);
-
-          tooltip
-            .style("opacity", 1)
-            .style("left", (event.pageX + 10) + "px")
-            .style("top", (event.pageY + 20) + "px")
-            .html(`
-<strong>X:</strong> ${x} <br/>
-<strong>Y:</strong> ${y} 
-        `);
-        });
-
-        function render(filteredFeatures, applyColor) {
-          const g = svg.select(".mapGroup");
-          g.selectAll("*").remove();
-
-          const regions = g.selectAll("path")
-            .data(allFeatures)
-            .enter()
-            .append("path")
-            .attr("d", path)
-            .attr("fill", d => {
-              const c = d.properties.color_hex || "transparent";
-              return filteredFeatures.includes(d) ? (c || "transparent") : "transparent";
-            });
-          // .on("mouseover", (event, d) => {
-          //   tooltip
-          //     .style("opacity", 1)
-          //     .style("left", (event.pageX + 10) + "px")
-          //     .style("top", (event.pageY - 20) + "px")
-          //     .html(`
-          //   <strong>ID:</strong> ${d.properties.DN}<br/>
-          //   <strong>Color:</strong> ${d.properties.color_hex}
-          // `);
-          // })
-          // .on("mouseout", () => {
-          //   tooltip.style("opacity", 0);
-          // });
-
-
-          g.selectAll("text")
-            .data(allFeatures)
-            .enter()
-            .append("text")
-            .attr("transform", d => {
-              const centroid = path.centroid(d);
-              return `translate(${centroid[0]}, ${centroid[1]})`;
-            })
-            .attr("text-anchor", "middle")
-            .attr("alignment-baseline", "middle")
-            .each(function (d) {
-              const textEl = d3.select(this);
-              const lines = d.properties.name?.split(" ") || [];
-              const lineHeightEm = 1.2;
-              const offset = -((lines.length - 1) / 2) * lineHeightEm;
-
-              lines.forEach((line, i) => {
-                textEl.append("tspan")
-                  .attr("x", 0)
-                  .attr("dy", (i === 0 ? offset : lineHeightEm) + "em")
-                  .text(line);
-              });
-            });
-
-        }
-
-        svg.call(zoom);
-
-        const colorLegend = d3.select("#colorLegend");
-
-        function updateLegend(selectedColors) {
-          return;
-          colorLegend.selectAll("*").remove();
-          const colorsToShow = selectedColors || uniqueColors;
-          colorsToShow.forEach(color => {
-            const item = colorLegend.append("div").style("display", "block").style("margin-right", "10px").style("font-size", "12px").style("user-select", "none");
-            item.append("span")
-              .style("display", "inline-block")
-              .style("width", "12px")
-              .style("height", "12px")
-              .style("background-color", color)
-              .style("margin-right", "4px")
-              .style("border", "0px solid #999");
-            item.append("span").text(color);
-          });
-        }
-
-        function updateRender() {
-          const selectedColors = getSelectedColors();
-          updateLegend(selectedColors);
-          if (!selectedColors) {
-            render(allFeatures, true);
-          } else {
-            const filteredFeatures = allFeatures.filter(f => selectedColors.includes(f.properties.color_hex));
-            render(filteredFeatures, true);
-          }
-        }
-
-        // Initial render
-        updateRender();
-
-      });
+      updateRender();
     }
 
-    // Add event listeners to buttons
-    d3.selectAll("#fileButtons button").on("click", function () {
-      const file = d3.select(this).attr("data-file");
-      svg.select(".mapGroup").remove(); // clear old map
-      colorFilter.selectAll("*").remove(); // clear filters
-      loadMap(file);
+    d3.selectAll("#planetButtons button").on("click", function () {
+      const planet = d3.select(this).attr("data-file");
+      loadMap(planet, currentRegionType);
     });
+
+    d3.selectAll("#regionTypeButtons button").on("click", function () {
+      currentRegionType = d3.select(this).attr("data-region");
+      updateRender();
+    });
+    d3.select("#toggleTerrain").on("change", () => {render();});
+    d3.select("#toggleSpawn").on("change", () => {render();});
+
   </script>
 </body>
 
