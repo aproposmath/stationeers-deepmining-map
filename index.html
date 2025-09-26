@@ -107,13 +107,11 @@
     async function loadData(planet) {
 
       const raw = await d3.json(`data/${planet}.json`);
-
       const data = {};
 
       for (const key in raw) {
         if (['mining', 'names', 'poi'].includes(key)) {
-          const topoData = topojson.feature(raw[key], raw[key].objects.data);
-          data[key] = topoData;
+          data[key] = topojson.feature(raw[key], raw[key].objects.data);
         }
         else {
           data[key] = raw[key];
@@ -139,12 +137,13 @@
       currentPlanet = planet;
       currentRegionType = regionType;
 
-      svg.select(".mapGroup").remove(); // clear old map
+      for (var group of ["mining", "names", "poi", "spawn"]) {
+        svg.select("." + group).remove();
+      }
       svg.call(zoom.transform, d3.zoomIdentity);
 
       const allData = await loadData(planet);
-      const geojson = allData[regionType];
-      const poiData = allData.poi;
+      const geojson = allData.mining;
 
       // Helper to get selected colors (excluding 'all')
       function getSelectedColors() {
@@ -202,7 +201,6 @@
         const data = allData[regionType];
 
         const allFeatures = data.features;
-        const filteredFeatures = data.filteredFeatures || allFeatures;
 
         const isVisible = (d) => {
           if (selectedColors === undefined) return true;
