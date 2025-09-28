@@ -123,8 +123,11 @@
       if (!isNaN(scale) && !isNaN(x) && !isNaN(y)) {
         svg.call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
       }
-
-      selectedRegions = (params.get('selected') || '').split('-').map(s => parseInt(s));
+      selectedRegions = params.get('selected');
+      if(selectedRegions === null)
+        selectedRegions = [0];
+      else
+        selectedRegions = selectedRegions.split('-').map(s => parseInt(s));
       northUp = params.get("rotate") === '1';
       document.getElementById('toggleNorth').checked = northUp ? true : false;
     }
