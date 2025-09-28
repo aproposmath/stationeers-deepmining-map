@@ -73,12 +73,63 @@
       <label style="display: block;">
         <input type="checkbox" id="toggleSpawn"> Start Locations
       </label>
+      <label style="display: block;">
+        <input type="checkbox" id="toggleNorth"> North Up
+      </label>
       <label style="display: block; margin-top: 20px; margin-bottom: 5px;">Regions</label>
       <div id="colorFilter"></div>
     </div>
   </div>
 
   <script>
+    function getSettingsFromUI() {
+      const transform = d3.zoomTransform(svg.node());
+      const checkBoxes = colorFilter.selectAll("input[type=checkbox]").nodes();
+      selectedRegions = [];
+      for (const i in checkBoxes) {
+        if (checkBoxes[i].checked)
+          selectedRegions.push(+i);
+      }
+      const settings = {
+        planet: currentPlanet,
+        region: currentRegionType,
+        terrain: document.getElementById('toggleTerrain').checked ? '1' : '0',
+        spawn: document.getElementById('toggleSpawn').checked ? '1' : '0',
+        zoom: transform.k.toFixed(2),
+        x: Math.round(transform.x),
+        y: Math.round(transform.y),
+        selected: selectedRegions === null ? "" : selectedRegions.join('-'),
+        rotate: northUp ? '1' : '0',
+      };
+
+      const query = new URLSearchParams(settings).toString();
+      window.history.replaceState(null, '', '?' + query);
+    }
+
+    function applySettingsFromQuery(params) {
+      const terrain = params.get('terrain');
+      if (terrain !== null) {
+        document.getElementById('toggleTerrain').checked = terrain === '1';
+      }
+
+      const spawn = params.get('spawn');
+      if (spawn !== null) {
+        document.getElementById('toggleSpawn').checked = spawn === '1';
+      }
+      const scale = parseFloat(params.get('zoom'));
+      const x = parseFloat(params.get('x'));
+      const y = parseFloat(params.get('y'));
+
+      if (!isNaN(scale) && !isNaN(x) && !isNaN(y)) {
+        svg.call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+      }
+
+      selectedRegions = (params.get('selected') || '').split('-').map(s => parseInt(s));
+      northUp = params.get("rotate") === '1';
+      document.getElementById('toggleNorth').checked = northUp ? true : false;
+    }
+
+
     const svg = d3.select("svg");
     const width = +svg.attr("width");
     const height = +svg.attr("height");
@@ -91,18 +142,26 @@
     const zoom = d3.zoom()
       .scaleExtent([1, 8])
       .on("zoom", (event) => {
-        svg.selectAll("g").attr("transform", event.transform);
+        for (var group of ["mining", "names", "poi", "spawn", "imageGroup"]) {
+          svg.select("." + group).attr("transform", event.transform);
+        }
+        // svg.selectAll("g").attr("transform", event.transform);
+        getSettingsFromUI();
       });
 
-    let currentPlanet = null;
-    let currentRegionType = null;
+    const params = new URLSearchParams(window.location.search);
+    let currentPlanet = params.get('planet') || 'lunar';
+    let currentRegionType = params.get('region') || 'mining';
+    let selectedRegions = [0];
+    let northUp = false;
+    applySettingsFromQuery(params);
     let mapWidth = 4000;
     let mapHeight = 4000;
 
     let updateRender = () => { };
     let render = () => { };
 
-    loadMap("lunar", "mining");
+    loadMap(currentPlanet, currentRegionType);
 
     async function loadData(planet) {
 
@@ -115,6 +174,15 @@
         }
         else {
           data[key] = raw[key];
+        }
+      }
+      if (northUp) {
+        for (const key of ['mining', 'names', 'poi']) {
+          data[key].features.forEach(f => {
+            f.geometry.coordinates = f.geometry.coordinates.map(polygon => {
+              return polygon.map(([x, y]) => ([-x, -y]));
+            });
+          });
         }
       }
       return data;
@@ -140,7 +208,6 @@
       for (var group of ["mining", "names", "poi", "spawn"]) {
         svg.select("." + group).remove();
       }
-      svg.call(zoom.transform, d3.zoomIdentity);
 
       const allData = await loadData(planet);
       const geojson = allData.mining;
@@ -158,16 +225,23 @@
       const path = d3.geoPath().projection(projection);
       svg.selectAll("g").remove();
       const g = svg.append("g").attr("class", "imageGroup");
+      const currentTransform = d3.zoomTransform(svg.node());
+      g.attr("transform", currentTransform)
+      const imgTransform = northUp ? `rotate(180, ${width / 2}, ${height / 2})` : "";
+      const invertFilter = northUp ? "invert(1)" : "none";
       const terrainImage = g.append("image")
         .attr("class", "terrainImage")
         .attr("href", `data/${planet}_terrain.webp`)
-        // .attr("href", "Vulcan_Minimap.png")
         .attr("x", 0)
         .attr("y", 0)
         .attr("width", width)
         .attr("height", height)
         .attr("preserveAspectRatio", "xMidYMid meet")
-        .attr("opacity", 1.0);
+        .attr("opacity", 1.0)
+        .attr("transform", imgTransform)
+        // .attr("filter", invertFilter);
+        .style("filter", invertFilter);
+      ;
 
       const hideTooltip = () => {tooltip.style("opacity", 0.0)};
       svg.on("mouseleave", hideTooltip)
@@ -181,8 +255,12 @@
         const svgX = (mouseX - transform.x) / transform.k;
         const svgY = (mouseY - transform.y) / transform.k;
 
-        const x = Math.round((svgX / 800 - 0.5) * mapWidth);
-        const y = Math.round((0.5 - svgY / 800) * mapHeight);
+        let x = Math.round((svgX / 800 - 0.5) * mapWidth);
+        let y = Math.round((0.5 - svgY / 800) * mapHeight);
+        if (northUp) {
+          x = -x;
+          y = -y;
+        }
 
         tooltip
           .style("opacity", 1)
@@ -193,7 +271,46 @@
               <strong>Y:</strong> ${y} <br/>`);
       });
 
+      function addCompass() {
+        svg.selectAll(".compass").remove();
+        const size = 60;
+        const w2 = 10;
+
+        const compass = svg.append("g")
+          .attr("class", "compass")
+
+        const arrow = compass.append("g")
+          .attr("class", "compass-arrow")
+
+        const x0 = -w2;
+        const x1 = w2;
+        let y0 = 0;
+        let y1 = -size;
+        let textPos = 20;
+
+        if (northUp) {
+          y0 = -size;
+          y1 = 0;
+          textPos = - size - 10;
+        }
+
+        arrow.append("path")
+          .attr("d", d3.line()([[0, y0], [x0, y1], [x1, y1], [0, y0]]))
+          .attr("fill", "red");
+
+        compass.append("text")
+          .attr("y", textPos)
+          .attr("text-anchor", "middle")
+          .text("N")
+          .style("font-size", "20px")
+          .style("fill", "red")
+          .style("stroke", "black")
+          .style("stroke-width", "2px")
+          .style("paint-order", "stroke")
+      }
+
       function renderRegions(regionType, opacity, selectedColors) {
+        addCompass()
         svg.select("." + regionType).remove();
         const g = svg.append("g").attr("class", regionType);
         const currentTransform = d3.zoomTransform(svg.node());
@@ -255,6 +372,7 @@
       }
 
       render = () => {
+        getSettingsFromUI();
         const showTerrain = document.getElementById("toggleTerrain").checked;
         const showSpawn = document.getElementById("toggleSpawn").checked;
 
@@ -278,7 +396,13 @@
         spawn.attr("transform", currentTransform);
 
         Object.entries(allData.start_locations).forEach(([name, coords]) => {
-          const [x, y] = projection([coords[0] / mapWidth + 0.5, coords[1] / mapHeight + 0.5]); // assumes coords are in geo space
+          let px = coords[0] / mapWidth + 0.5;
+          let py = 1.0 - (coords[1] / mapHeight + 0.5);
+          if (northUp) {
+            px = 1 - px;
+            py = 1 - py;
+          }
+          const [x,y] = [width * px, height * py]
 
           spawn.append("circle")
             .attr("cx", x)
@@ -299,6 +423,11 @@
             .style("paint-order", "stroke")
         });
 
+        const svgWidth = +svg.attr("width");
+        const svgHeight = +svg.attr("height");
+        const compass = svg.select(".compass");
+        compass.raise();
+        compass.attr("transform", `translate(${width - 30}, ${height - 40})`);
       }
 
       svg.call(zoom);
@@ -319,7 +448,7 @@
 
         // Add "All" checkbox for convenience
         colorFilter.append("label")
-          .html(`<input type="checkbox" value="all" checked> All`)
+          .html(`<input type="checkbox" value="all"> All`)
           .style("margin-right", "10px")
           .style("display", "block")
           ;
@@ -330,7 +459,10 @@
             .style("display", "block")
             .style("margin-right", "10px");
         });
-        // Checkbox behavior: if "All" is checked, uncheck others; if any other checked, uncheck "All"
+        for (const i in colorFilter.selectAll("input[type=checkbox]").nodes())
+          if (selectedRegions.includes(parseInt(i)))
+            colorFilter.selectAll("input[type=checkbox]").nodes()[i].checked = true;
+
         colorFilter.selectAll("input[type=checkbox]").on("change", function () {
           if (this.value === "all") {
             if (this.checked) {
@@ -357,15 +489,22 @@
 
     d3.selectAll("#planetButtons button").on("click", function () {
       const planet = d3.select(this).attr("data-file");
+      svg.call(zoom.transform, d3.zoomIdentity);
+      selectedRegions = [0];
       loadMap(planet, currentRegionType);
     });
 
     d3.selectAll("#regionTypeButtons button").on("click", function () {
+      selectedRegions = [0];
       currentRegionType = d3.select(this).attr("data-region");
       updateRender();
     });
     d3.select("#toggleTerrain").on("change", () => {render();});
     d3.select("#toggleSpawn").on("change", () => {render();});
+    d3.select("#toggleNorth").on("change", () => {
+      northUp = d3.select("#toggleNorth").property("checked");
+      loadMap(currentPlanet, currentRegionType);
+    });
 
   </script>
 </body>
