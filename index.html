@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <title>Stationeers Maps</title>
-  <link rel="icon" type="image/webp" href="icon.webp">
+  <link rel="icon" type="image/webp" href="icon_transparent.webp">
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://unpkg.com/topojson-client@3"></script>
   <style>
@@ -40,33 +40,46 @@
 </head>
 
 <body>
-  <div id="fileButtons" style="margin: 10px; width: 800px;">
+  <div id="fileButtons">
+    <div id="buttonsHeader" style="display: inline-block;">
 
-    <div style="margin: 10px; display: flex; gap: 10px;">
-      <div id="planetButtons">
-        <button data-file="lunar">Lunar</button>
-        <button data-file="europa">Europa</button>
-        <button data-file="mars">Mars</button>
-        <button data-file="mimas">Mimas</button>
-        <button data-file="venus">Venus</button>
-        <button data-file="vulcan">Vulcan</button>
-      </div>
+      <div style="margin: 10px; display: flex; gap: 10px;">
+        <div id="planetButtons">
+          <button data-file="lunar">Lunar</button>
+          <button data-file="europa">Europa</button>
+          <button data-file="mars">Mars</button>
+          <button data-file="mimas">Mimas</button>
+          <button data-file="venus">Venus</button>
+          <button data-file="vulcan">Vulcan</button>
+        </div>
 
-      <div id="regionTypeButtons" style="margin-left: auto; display: flex; gap: 10px;">
-        <button data-region="mining">Mining</button>
-        <button data-region="names">Names</button>
-        <button data-region="poi">POI</button>
+        <div id="regionTypeButtons" style="margin-left: auto; display: flex; gap: 10px;">
+          <button data-region="mining">Mining</button>
+          <button data-region="names">Names</button>
+          <button data-region="poi">POI</button>
+        </div>
       </div>
+    </div>
+    <div style="margin-left: auto; display: inline-block; margin-left: 20px; gap: 10px;">
+      <button id="share" title="Share view"
+        style="height: 40px; width: 40px; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+          viewBox="0 0 512 512"><!--!Font Awesome Free v7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
+          <path
+            d="M384 192c53 0 96-43 96-96s-43-96-96-96-96 43-96 96c0 5.4 .5 10.8 1.3 16L159.6 184.1c-16.9-15-39.2-24.1-63.6-24.1-53 0-96 43-96 96s43 96 96 96c24.4 0 46.6-9.1 63.6-24.1L289.3 400c-.9 5.2-1.3 10.5-1.3 16 0 53 43 96 96 96s96-43 96-96-43-96-96-96c-24.4 0-46.6 9.1-63.6 24.1L190.7 272c.9-5.2 1.3-10.5 1.3-16s-.5-10.8-1.3-16l129.7-72.1c16.9 15 39.2 24.1 63.6 24.1z" />
+        </svg>
+      </button>
     </div>
   </div>
 
-  <div class="tooltip" id="tooltip"></div>
-
-  <div style="display: flex;">
-    <div style="flex: 1; padding: 10px; border: 0px solid #ccc;">
-      <svg width="800" height="800"></svg>
+  <div id="root" style="display: flex; align-items: flex-start;">
+    <div id="canvasContainer" style="position: relative;">
+      <svg id="svg" style="position: absolute; top: 0; left: 0;"></svg>
+      <div id="iconLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+      </div>
     </div>
-    <div style="flex: 1; padding: 10px; border: 0px solid #ccc;">
+
+    <div id="sidePane" style="margin-left: 20px;">
       <label style="display: block; margin-top: 10px;">
         <input type="checkbox" id="toggleTerrain" checked> Terrain
       </label>
@@ -76,12 +89,48 @@
       <label style="display: block;">
         <input type="checkbox" id="toggleNorth"> North Up
       </label>
+
       <label style="display: block; margin-top: 20px; margin-bottom: 5px;">Regions</label>
       <div id="colorFilter"></div>
     </div>
-  </div>
 
+    <div class="tooltip" id="tooltip"></div>
+
+  </div>
   <script>
+    const AUTOLATHE_ICON_URL = "https://stationeers-wiki.com/images/8/85/StructureAutolathe_BuildState4.png"
+    const PLAYER_ICON_URL = "icon_transparent.webp"
+
+    function setCanvasSize(width, height) {
+      console.log("Setting canvas size:", width, height);
+      canvasWidth = width;
+      canvasHeight = height;
+
+      const container = document.getElementById("canvasContainer");
+      const svg = document.getElementById("svg");
+
+      if (container && svg) {
+        container.style.width = `${width}px`;
+        container.style.height = `${height}px`;
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", height);
+      }
+
+      // Update other related elements if needed
+      const iconLayer = document.getElementById("iconLayer");
+      if (iconLayer) {
+        iconLayer.style.width = `${width}px`;
+        iconLayer.style.height = `${height}px`;
+      }
+
+      const buttonsHeader = document.getElementById("buttonsHeader");
+      if (buttonsHeader) {
+        buttonsHeader.style.width = `${width}px`;
+      }
+    }
+
+    // setCanvasSize(800, 800);
+
     function getSettingsFromUI() {
       const transform = d3.zoomTransform(svg.node());
       const checkBoxes = colorFilter.selectAll("input[type=checkbox]").nodes();
@@ -102,8 +151,14 @@
         rotate: northUp ? '1' : '0',
       };
 
+      if (iconsData.length > 0) {
+        settings.icons = encodeURIComponent(JSON.stringify(iconsData));
+      }
+
       const query = new URLSearchParams(settings).toString();
-      window.history.replaceState(null, '', '?' + query);
+      // window.history.replaceState(null, '', '?' + query);
+      navigator.clipboard.writeText(window.location.origin + window.location.pathname + '?' + query);
+      alert("Link copied to clipboard!");
     }
 
     function applySettingsFromQuery(params) {
@@ -124,45 +179,127 @@
         svg.call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
       }
       selectedRegions = params.get('selected');
-      if(selectedRegions === null)
+      if (selectedRegions === null)
         selectedRegions = [0];
       else
         selectedRegions = selectedRegions.split('-').map(s => parseInt(s));
       northUp = params.get("rotate") === '1';
       document.getElementById('toggleNorth').checked = northUp ? true : false;
+
+      isEmbed = params.get('embed') === '1';
+      if (isEmbed) {
+        document.getElementById('fileButtons').style.display = 'none';
+        document.getElementById('sidePane').style.display = 'none';
+        const root = document.getElementById('root');
+        root.style.margin = '0px';
+        root.style.width = `${canvasWidth}px`;
+        root.style.height = `${canvasHeight}px`;
+        root.style.padding = '0px';
+        root.style.boxShadow = 'none';
+        document.body.style.background = 'none';
+        document.body.style.overflow = 'hidden';
+      }
+
+      const icons = params.get('icons');
+      if (icons !== null) {
+        try {
+          iconsData = JSON.parse(decodeURIComponent(icons));
+        } catch (e) {
+          console.error("Failed to parse icons from URL:", e);
+          iconsData = [];
+        }
+      }
+    }
+
+    function updateIconPositions() {
+      const transform = d3.zoomTransform(svg.node());
+      const iconLayer = d3.select("#iconLayer");
+      iconLayer.selectAll("img").each(function () {
+        const img = d3.select(this);
+        let dataX = +img.attr("data-x");
+        let dataY = +img.attr("data-y");
+
+        if (northUp) {
+          dataX = - dataX;
+          dataY = - dataY;
+        }
+
+        dataX = (dataX + 0.5) * canvasWidth;
+        dataY = (dataY + 0.5) * canvasHeight;
+
+        const screenX = transform.applyX(dataX);
+        const screenY = transform.applyY(dataY);
+
+        img.style("left", `${screenX}px`)
+          .style("top", `${screenY}px`);
+
+        const isVisible = screenX >= 0 && screenX <= canvasWidth && screenY >= 0 && screenY <= canvasHeight;
+        img.style("display", isVisible ? "block" : "none");
+      });
+    }
+
+    function addIcons() {
+      const iconLayer = d3.select("#iconLayer");
+      iconLayer.selectAll("img").remove(); // clean up
+
+      for (const icon of iconsData) {
+        let url = "";
+        if (icon.type === "player") {
+          url = PLAYER_ICON_URL;
+        }
+        else if (icon.type === "autolathe") {
+          url = AUTOLATHE_ICON_URL;
+        }
+
+        const size = icon.size || 32;
+        const img = iconLayer.append("img")
+          .attr("src", url)
+          .style("position", "absolute")
+          .style("width", `${size}px`)
+          .style("height", `${size}px`)
+          .style("transform", "translate(-16px, -16px)") // center on position
+          .attr("data-x", icon.position[0] / mapWidth)
+          .attr("data-y", -icon.position[2] / mapHeight);
+      }
+      updateIconPositions();
     }
 
 
-    const svg = d3.select("svg");
-    const width = +svg.attr("width");
-    const height = +svg.attr("height");
+
+    const svg = d3.select("#svg");
     const tooltip = d3.select("#tooltip");
 
     const colorFilter = d3.select("#colorFilter");
 
+    let isEmbed = false;
     let allData = {};
-
-    const zoom = d3.zoom()
-      .scaleExtent([1, 8])
-      .on("zoom", (event) => {
-        for (var group of ["mining", "names", "poi", "spawn", "imageGroup"]) {
-          svg.select("." + group).attr("transform", event.transform);
-        }
-        // svg.selectAll("g").attr("transform", event.transform);
-        getSettingsFromUI();
-      });
-
+    let iconsData = [];
     const params = new URLSearchParams(window.location.search);
+    let canvasWidth = -1;
+    let canvasHeight = -1;
+    setCanvasSize(parseInt(params.get('width') || '800'), parseInt(params.get('height') || '800'));
+    const width = +svg.attr("width");
+    const height = +svg.attr("height");
     let currentPlanet = params.get('planet') || 'lunar';
     let currentRegionType = params.get('region') || 'mining';
     let selectedRegions = [0];
     let northUp = false;
-    applySettingsFromQuery(params);
     let mapWidth = 4000;
     let mapHeight = 4000;
 
     let updateRender = () => { };
     let render = () => { };
+
+    const zoom = d3.zoom()
+      .scaleExtent([1, 100])
+      .on("zoom", (event) => {
+        const t = event.transform;
+        for (var group of ["mining", "names", "poi", "spawn", "imageGroup"]) {
+          svg.select("." + group).attr("transform", t);
+        }
+        updateIconPositions();
+      });
+    applySettingsFromQuery(params);
 
     loadMap(currentPlanet, currentRegionType);
 
@@ -188,20 +325,8 @@
           });
         }
       }
+
       return data;
-
-
-      const get = async (name) => {
-        const data = await d3.json(`data/${planet}_${name}.topojson`)
-        const topoData = topojson.feature(data, data.objects.data);
-        return topoData;
-      }
-
-      return {
-        mining: await get("mining"),
-        names: await get("names"),
-        poi: await get("poi"),
-      }
     }
 
     async function loadMap(planet, regionType) {
@@ -212,7 +337,7 @@
         svg.select("." + group).remove();
       }
 
-      const allData = await loadData(planet);
+      allData = await loadData(planet);
       const geojson = allData.mining;
 
       // Helper to get selected colors (excluding 'all')
@@ -258,11 +383,16 @@
         const svgX = (mouseX - transform.x) / transform.k;
         const svgY = (mouseY - transform.y) / transform.k;
 
-        let x = Math.round((svgX / 800 - 0.5) * mapWidth);
-        let y = Math.round((0.5 - svgY / 800) * mapHeight);
+        let x = Math.round((svgX / canvasHeight - 0.5) * mapWidth);
+        let y = Math.round((0.5 - svgY / canvasHeight) * mapHeight);
         if (northUp) {
           x = -x;
           y = -y;
+        }
+
+        if (x < -mapWidth / 2 || x > mapWidth / 2 || y < -mapHeight / 2 || y > mapHeight / 2) {
+          hideTooltip();
+          return;
         }
 
         tooltip
@@ -313,7 +443,7 @@
       }
 
       function renderRegions(regionType, opacity, selectedColors) {
-        addCompass()
+        addCompass();
         svg.select("." + regionType).remove();
         const g = svg.append("g").attr("class", regionType);
         const currentTransform = d3.zoomTransform(svg.node());
@@ -375,7 +505,6 @@
       }
 
       render = () => {
-        getSettingsFromUI();
         const showTerrain = document.getElementById("toggleTerrain").checked;
         const showSpawn = document.getElementById("toggleSpawn").checked;
 
@@ -405,7 +534,7 @@
             px = 1 - px;
             py = 1 - py;
           }
-          const [x,y] = [width * px, height * py]
+          const [x, y] = [width * px, height * py]
 
           spawn.append("circle")
             .attr("cx", x)
@@ -428,6 +557,7 @@
 
         const svgWidth = +svg.attr("width");
         const svgHeight = +svg.attr("height");
+        svg.select(".icons").raise();
         const compass = svg.select(".compass");
         compass.raise();
         compass.attr("transform", `translate(${width - 30}, ${height - 40})`);
@@ -488,6 +618,7 @@
       }
 
       updateRender();
+      addIcons()
     }
 
     d3.selectAll("#planetButtons button").on("click", function () {
@@ -507,6 +638,10 @@
     d3.select("#toggleNorth").on("change", () => {
       northUp = d3.select("#toggleNorth").property("checked");
       loadMap(currentPlanet, currentRegionType);
+    });
+
+    d3.select("#share").on("click", () => {
+      getSettingsFromUI();
     });
 
   </script>
