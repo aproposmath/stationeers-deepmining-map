@@ -81,6 +81,7 @@ body {
   justify-content: center;
   min-height: 0;
   min-width: 0;
+  height: 100%;
   border: 2px solid rgba(100, 150, 255, 0.4);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.3);
@@ -133,8 +134,8 @@ text {
 .tooltip {
   position: absolute;
   background: linear-gradient(135deg, rgba(20, 35, 70, 0.98) 0%, rgba(15, 25, 55, 0.98) 100%);
-  padding: 14px 18px;
-  font-size: 13px;
+  padding: 10px 16px;
+  font-size: 16px;
   pointer-events: none;
   opacity: 0;
   border: 1px solid rgba(100, 150, 255, 0.5);
@@ -211,6 +212,7 @@ button:active {
 }
 
 input[type="checkbox"] {
+  vertical-align: middle;
   accent-color: #4dd0ff;
   cursor: pointer;
   width: 18px;
@@ -419,9 +421,9 @@ label:hover {
 #colorFilter label span {
   font-weight: 600;
   text-shadow: 
-    0 0 8px currentColor,
-    0 0 16px currentColor,
-    0 1px 3px rgba(0, 0, 0, 0.8),
+    0 0 8px rgba(0, 0, 0, 1.0),
+    0 0 16px rgba(0, 0, 0, 0.8),
+    0 1px 3px rgba(0, 0, 0, 1.0),
     0 0 2px rgba(255, 255, 255, 0.3);
   letter-spacing: 0.3px;
 }
@@ -531,4 +533,24 @@ label:hover {
   #sidePane {
     width: 260px;
   }
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 30, 60, 1.0);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-10px);
 }

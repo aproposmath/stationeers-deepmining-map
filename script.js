@@ -2,27 +2,18 @@ const AUTOLATHE_ICON_URL = "https://stationeers-wiki.com/images/8/85/StructureAu
 const PLAYER_ICON_URL = "icon_transparent.webp"
 
 function setCanvasSize(width, height) {
-  console.log("Setting canvas size:", width, height);
   canvasWidth = width;
   canvasHeight = height;
+}
 
-  const container = document.getElementById("canvasContainer");
-  const svg = document.getElementById("svg");
+function showToast(message, duration = 3000) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.add("show");
 
-  if (container && svg) {
-    container.style.width = `${width}px`;
-    container.style.height = `${height}px`;
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.style.width = "100%";
-    svg.style.height = "100%";
-  }
-
-  const iconLayer = document.getElementById("iconLayer");
-  if (iconLayer) {
-    iconLayer.style.width = `${width}px`;
-    iconLayer.style.height = `${height}px`;
-  }
+  setTimeout(() => {
+    toast.classList.remove("show");
+  }, duration);
 }
 
 function getSettingsFromUI() {
@@ -39,10 +30,9 @@ function getSettingsFromUI() {
     terrain: document.getElementById('toggleTerrain').checked ? '1' : '0',
     spawn: document.getElementById('toggleSpawn').checked ? '1' : '0',
     zoom: transform.k.toFixed(2),
-    x: Math.round(transform.x),
-    y: Math.round(transform.y),
     selected: selectedRegions === null ? "" : selectedRegions.join('-'),
     rotate: northUp ? '1' : '0',
+    ...coordinatesFromScreen(),
   };
 
   if (iconsData.length > 0) {
@@ -50,8 +40,11 @@ function getSettingsFromUI() {
   }
 
   const query = new URLSearchParams(settings).toString();
-  navigator.clipboard.writeText(window.location.origin + window.location.pathname + '?' + query);
-  alert("Link copied to clipboard!");
+  const url = window.location.origin + window.location.pathname + '?' + query;
+  navigator.clipboard.writeText(url);
+  // replace current url without reloading
+  window.history.pushState({}, '', url);
+  showToast("Link copied to clipboard!");
 }
 
 function applySettingsFromQuery(params) {
@@ -65,19 +58,32 @@ function applySettingsFromQuery(params) {
     document.getElementById('toggleSpawn').checked = spawn === '1';
   }
   const scale = parseFloat(params.get('zoom'));
-  const x = parseFloat(params.get('x'));
-  const y = parseFloat(params.get('y'));
 
-  if (!isNaN(scale) && !isNaN(x) && !isNaN(y)) {
-    d3.select("#canvasContainer").call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+  // get x/z map coordinates
+  let x = parseFloat(params.get('x'));
+  let z = parseFloat(params.get('z'));
+
+  northUp = params.get("rotate") === '1';
+  document.getElementById('toggleNorth').checked = northUp ? true : false;
+
+  if (!isNaN(scale) && !isNaN(x) && !isNaN(z)) {
+    if( northUp) {
+      x = -x;
+      z = -z;
+    }
+
+    let svgX = canvasWidth  * (x / mapWidth  + 0.5);
+    let svgY = canvasWidth * (0.5 - z / mapHeight);
+    const transformX = canvasWidth / 2 - svgX * scale;
+    const transformY = canvasHeight / 2 - svgY * scale;
+
+    d3.select("#canvasContainer").call(zoom.transform, d3.zoomIdentity.translate(transformX, transformY).scale(scale));
   }
   selectedRegions = params.get('selected');
   if (selectedRegions === null)
     selectedRegions = [0];
   else
     selectedRegions = selectedRegions.split('-').map(s => parseInt(s));
-  northUp = params.get("rotate") === '1';
-  document.getElementById('toggleNorth').checked = northUp ? true : false;
 
   isEmbed = params.get('embed') === '1';
   if (isEmbed) {
@@ -85,8 +91,6 @@ function applySettingsFromQuery(params) {
     document.getElementById('sidePane').style.display = 'none';
     const root = document.getElementById('root');
     root.style.margin = '0px';
-    root.style.width = `${canvasWidth}px`;
-    root.style.height = `${canvasHeight}px`;
     root.style.padding = '0px';
     root.style.boxShadow = 'none';
     document.body.style.background = 'none';
@@ -160,6 +164,32 @@ function addIcons() {
   updateIconPositions();
 }
 
+function coordinatesFromScreen(screenX, screenY) {
+    getContentOffset();
+    const transform = d3.zoomTransform(document.getElementById("canvasContainer"));
+    let canvasX = 0;
+    let canvasY = 0;
+    if(screenX === undefined || screenY === undefined) {
+      // take the center of the canvas
+      canvasX = canvasWidth / 2;
+      canvasY = canvasHeight / 2;
+    }
+    else {
+      canvasX = screenX - contentOffsetX;
+      canvasY = screenY - contentOffsetY;
+    }
+
+    const svgX = (canvasX - transform.x) / transform.k;
+    const svgY = (canvasY - transform.y) / transform.k;
+
+    let x = Math.round((svgX / canvasWidth - 0.5) * mapWidth);
+    let y = Math.round((0.5 - svgY / canvasWidth) * mapHeight);
+    if (northUp) {
+      x = -x;
+      y = -y;
+    }
+    return {x: x, z: y};
+}
 
 
 const svg = d3.select("#svg");
@@ -187,8 +217,6 @@ let calcHeight = 800;
 }
 
 setCanvasSize(parseInt(params.get('width') || calcWidth), parseInt(params.get('height') || calcHeight));
-const width = canvasWidth;
-const height = canvasHeight;
 let currentPlanet = params.get('planet') || 'lunar';
 let currentRegionType = params.get('region') || 'mining';
 let selectedRegions = [0];
@@ -204,24 +232,33 @@ let contentOffsetY = 0;
 function getContentOffset() {
   const container = document.getElementById("canvasContainer");
   const containerRect = container.getBoundingClientRect();
-  contentOffsetX = (containerRect.width - width) / 2;
-  contentOffsetY = (containerRect.height - height) / 2;
+  contentOffsetX = (containerRect.width - canvasWidth) / 2;
+  contentOffsetY = (containerRect.height - canvasHeight) / 2;
+}
+
+let zoomTransform = d3.zoomIdentity;
+
+function updateTransform() {
+  const x = contentOffsetX * zoomTransform.k;
+  const y = contentOffsetY * zoomTransform.k;
+  for (var group of ["mining", "names", "poi", "spawn", "imageGroup"]) {
+    svg.select("." + group).attr("transform", `translate(${x}, ${y}) ${zoomTransform}`);
+  }
+  updateIconPositions();
 }
 
 const zoom = d3.zoom()
   .scaleExtent([0.5, 100])
   .on("zoom", (event) => {
     const t = event.transform;
-    for (var group of ["mining", "names", "poi", "spawn", "imageGroup"]) {
-      svg.select("." + group).attr("transform", `translate(${contentOffsetX}, ${contentOffsetY}) ${t}`);
-    }
-    updateIconPositions();
+    zoomTransform = event.transform;
+    updateTransform();
   });
 applySettingsFromQuery(params);
 
 d3.select("#canvasContainer").call(zoom);
 
-loadMap(currentPlanet, currentRegionType);
+loadMap(currentPlanet, currentRegionType, false);
 
 async function loadData(planet) {
 
@@ -268,7 +305,7 @@ async function loadMap(planet, regionType) {
   }
 
 
-  const projection = d3.geoIdentity().reflectY(true).fitSize([width, height], geojson);
+  const projection = d3.geoIdentity().reflectY(true).fitSize([canvasWidth, canvasHeight], geojson);
   const path = d3.geoPath().projection(projection);
   svg.selectAll("g").remove();
   
@@ -277,15 +314,15 @@ async function loadMap(planet, regionType) {
   const g = svg.append("g").attr("class", "imageGroup");
   const currentTransform = d3.zoomTransform(document.getElementById("canvasContainer"));
   g.attr("transform", `translate(${contentOffsetX}, ${contentOffsetY}) ${currentTransform}`)
-  const imgTransform = northUp ? `rotate(180, ${width / 2}, ${height / 2})` : "";
+  const imgTransform = northUp ? `rotate(180, ${canvasWidth / 2}, ${canvasHeight / 2})` : "";
   const invertFilter = northUp ? "invert(1)" : "none";
   const terrainImage = g.append("image")
     .attr("class", "terrainImage")
     .attr("href", `data/${planet}_terrain.webp`)
     .attr("x", 0)
     .attr("y", 0)
-    .attr("width", width)
-    .attr("height", height)
+    .attr("width", canvasWidth)
+    .attr("height", canvasHeight)
     .attr("preserveAspectRatio", "xMidYMid meet")
     .attr("opacity", 1.0)
     .attr("transform", imgTransform)
@@ -297,19 +334,9 @@ async function loadMap(planet, regionType) {
 
   svg.on("mousemove", function (event) {
     const [mouseX, mouseY] = d3.pointer(event);
+    const {x, z} = coordinatesFromScreen(mouseX, mouseY);
 
-    const transform = d3.zoomTransform(document.getElementById("canvasContainer"));
-    const svgX = (mouseX - contentOffsetX - transform.x) / transform.k;
-    const svgY = (mouseY - contentOffsetY - transform.y) / transform.k;
-
-    let x = Math.round((svgX / canvasWidth - 0.5) * mapWidth);
-    let y = Math.round((0.5 - svgY / canvasHeight) * mapHeight);
-    if (northUp) {
-      x = -x;
-      y = -y;
-    }
-
-    if (x < -mapWidth / 2 || x > mapWidth / 2 || y < -mapHeight / 2 || y > mapHeight / 2) {
+    if (x < -mapWidth / 2 || x > mapWidth / 2 || z < -mapHeight / 2 || z > mapHeight / 2) {
       hideTooltip();
       return;
     }
@@ -320,7 +347,7 @@ async function loadMap(planet, regionType) {
       .style("top", (event.pageY + 20) + "px")
       .html(`
           <strong>X:</strong> ${x} <br/>
-          <strong>Z:</strong> ${y} <br/>`);
+          <strong>Z:</strong> ${z} <br/>`);
   });
 
   function addCompass() {
@@ -424,6 +451,7 @@ async function loadMap(planet, regionType) {
   }
 
   render = () => {
+    getContentOffset();
     const showTerrain = document.getElementById("toggleTerrain").checked;
     const showSpawn = document.getElementById("toggleSpawn").checked;
 
@@ -453,7 +481,7 @@ async function loadMap(planet, regionType) {
         px = 1 - px;
         py = 1 - py;
       }
-      const [x, y] = [width * px, height * py]
+      const [x, y] = [canvasWidth * px, canvasHeight * py]
 
       spawn.append("circle")
         .attr("cx", x)
@@ -477,7 +505,14 @@ async function loadMap(planet, regionType) {
     svg.select(".icons").raise();
     const compass = svg.select(".compass");
     compass.raise();
-    compass.attr("transform", `translate(${contentOffsetX + width - 30}, ${contentOffsetY + height - 40})`);
+    compass.attr("transform", `translate(${contentOffsetX + canvasWidth - 30}, ${contentOffsetY + canvasHeight - 40})`);
+    updateTransform();
+  }
+
+  clampValue = (color, minV, maxV) => {
+    const hsv = d3.hsv(color);
+    hsv.v = Math.max(minV, Math.min(maxV, hsv.v));
+    return hsv.formatHex();      // back to #rrggbb
   }
 
   updateRender = () => {
@@ -502,7 +537,8 @@ async function loadMap(planet, regionType) {
 
     uniqueColors.forEach(color => {
       colorFilter.append("label")
-        .html(`<input type="checkbox" value="${color}"> <span style="color:${color}">${color2Name[color]}</span>`)
+        .html(`<input type="checkbox" value="${color}"> <span>${color2Name[color]}</span>`)
+        .style("background-color", clampValue(color, 0.0, 0.7))
         .style("display", "block")
         .style("margin-right", "10px");
     });
@@ -539,6 +575,8 @@ d3.selectAll("#planetButtons button").on("click", function () {
   d3.select("#canvasContainer").call(zoom.transform, d3.zoomIdentity);
   selectedRegions = [0];
   loadMap(planet, currentRegionType);
+  if (window.location.search.length > 0)
+    window.history.pushState({}, '', window.location.origin + window.location.pathname);
 });
 
 d3.selectAll("#regionTypeButtons button").on("click", function () {
@@ -551,8 +589,17 @@ d3.select("#toggleSpawn").on("change", () => {render();});
 d3.select("#toggleNorth").on("change", () => {
   northUp = d3.select("#toggleNorth").property("checked");
   loadMap(currentPlanet, currentRegionType);
+  if (window.location.search.length > 0)
+    window.history.pushState({}, '', window.location.origin + window.location.pathname);
 });
 
 d3.select("#share").on("click", () => {
   getSettingsFromUI();
 });
+
+window.addEventListener("resize", () => {
+  const container = document.getElementById("canvasContainer");
+  const containerRect = container.getBoundingClientRect();
+  setCanvasSize(containerRect.width, containerRect.height);
+  render();
+})
