@@ -2,8 +2,9 @@ const AUTOLATHE_ICON_URL = "https://stationeers-wiki.com/images/8/85/StructureAu
 const PLAYER_ICON_URL = "icon_transparent.webp"
 
 function setCanvasSize(width, height) {
-  canvasWidth = width;
-  canvasHeight = height;
+  const minDim = Math.min(calcWidth, calcHeight);
+  canvasWidth = minDim;
+  canvasHeight = minDim;
 }
 
 function showToast(message, duration = 3000) {
@@ -72,12 +73,19 @@ function applySettingsFromQuery(params) {
       z = -z;
     }
 
-    let svgX = canvasWidth  * (x / mapWidth  + 0.5);
-    let svgY = canvasWidth * (0.5 - z / mapHeight);
-    const transformX = canvasWidth / 2 - svgX * scale;
-    const transformY = canvasHeight / 2 - svgY * scale;
+    const svgX = canvasWidth  * (x / mapWidth  + 0.5);
+    const svgY = canvasHeight * (0.5 - z / mapHeight);
 
-    d3.select("#canvasContainer").call(zoom.transform, d3.zoomIdentity.translate(transformX, transformY).scale(scale));
+    getContentOffset();
+
+    const cx = contentOffsetX + canvasWidth  / 2;
+    const cy = contentOffsetY + canvasHeight / 2;
+
+    // choose t so that (svg + offset) ends up at the screen center after scaling
+    const tx = cx - (svgX + contentOffsetX) * scale;
+    const ty = cy - (svgY + contentOffsetY) * scale;
+
+    d3.select("#canvasContainer").call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
   selectedRegions = params.get('selected');
   if (selectedRegions === null)
@@ -167,23 +175,20 @@ function addIcons() {
 function coordinatesFromScreen(screenX, screenY) {
     getContentOffset();
     const transform = d3.zoomTransform(document.getElementById("canvasContainer"));
-    let canvasX = 0;
-    let canvasY = 0;
     if(screenX === undefined || screenY === undefined) {
       // take the center of the canvas
-      canvasX = canvasWidth / 2;
-      canvasY = canvasHeight / 2;
+      const container = document.getElementById("canvasContainer");
+      const containerRect = container.getBoundingClientRect();
+      screenX = containerRect.width / 2;
+      screenY = containerRect.height / 2;
     }
-    else {
-      canvasX = screenX - contentOffsetX;
-      canvasY = screenY - contentOffsetY;
-    }
-
+    const canvasX = screenX - contentOffsetX * transform.k;
+    const canvasY = screenY - contentOffsetY * transform.k;
     const svgX = (canvasX - transform.x) / transform.k;
     const svgY = (canvasY - transform.y) / transform.k;
 
     let x = Math.round((svgX / canvasWidth - 0.5) * mapWidth);
-    let y = Math.round((0.5 - svgY / canvasWidth) * mapHeight);
+    let y = Math.round((0.5 - svgY / canvasHeight) * mapHeight);
     if (northUp) {
       x = -x;
       y = -y;
@@ -211,9 +216,6 @@ let calcHeight = 800;
   const paddingGapSpace = 16 * 3;
   calcWidth = Math.max(400, window.innerWidth - sidebarSpace - paddingGapSpace);
   calcHeight = Math.max(400, window.innerHeight - 32);
-  const minDim = Math.min(calcWidth, calcHeight);
-  calcWidth = minDim;
-  calcHeight = minDim;
 }
 
 setCanvasSize(parseInt(params.get('width') || calcWidth), parseInt(params.get('height') || calcHeight));
@@ -245,6 +247,11 @@ function updateTransform() {
     svg.select("." + group).attr("transform", `translate(${x}, ${y}) ${zoomTransform}`);
   }
   updateIconPositions();
+  const container = document.getElementById("canvasContainer");
+  const containerRect = container.getBoundingClientRect();
+  const compass = svg.select(".compass");
+  compass.raise();
+  compass.attr("transform", `translate(${containerRect.width - 30}, ${containerRect.height - 40})`);
 }
 
 const zoom = d3.zoom()
@@ -451,7 +458,6 @@ async function loadMap(planet, regionType) {
   }
 
   render = () => {
-    getContentOffset();
     const showTerrain = document.getElementById("toggleTerrain").checked;
     const showSpawn = document.getElementById("toggleSpawn").checked;
 
@@ -503,9 +509,6 @@ async function loadMap(planet, regionType) {
     });
 
     svg.select(".icons").raise();
-    const compass = svg.select(".compass");
-    compass.raise();
-    compass.attr("transform", `translate(${contentOffsetX + canvasWidth - 30}, ${contentOffsetY + canvasHeight - 40})`);
     updateTransform();
   }
 
@@ -601,5 +604,7 @@ window.addEventListener("resize", () => {
   const container = document.getElementById("canvasContainer");
   const containerRect = container.getBoundingClientRect();
   setCanvasSize(containerRect.width, containerRect.height);
+  getContentOffset();
+  updateTransform();
   render();
 })
