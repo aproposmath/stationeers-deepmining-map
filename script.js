@@ -125,9 +125,9 @@ function updateIconPositions() {
   iconLayer.selectAll("img").each(function () {
     const img = d3.select(this);
     let dataX = +img.attr("data-x");
-    let dataY = +img.attr("data-y");
+    let dataZ = +img.attr("data-z");
 
-    const t = screenFromCoordinates(dataX, dataY);
+    const t = screenFromCoordinates(dataX, dataZ);
 
     const screenX = t.x;
     const screenY = t.y;
@@ -163,7 +163,7 @@ function addIcons() {
       .style("height", `${size}px`)
       .style("transform", "translate(-16px, -16px)")
       .attr("data-x", icon.position[0])
-      .attr("data-y", -icon.position[2]);
+      .attr("data-z", icon.position[2]);
   }
   updateIconPositions();
 }
