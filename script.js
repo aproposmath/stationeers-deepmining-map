@@ -125,16 +125,10 @@ function updateIconPositions() {
     let dataX = +img.attr("data-x");
     let dataY = +img.attr("data-y");
 
-    if (northUp) {
-      dataX = - dataX;
-      dataY = - dataY;
-    }
+    const t = screenFromCoordinates(dataX, dataY);
 
-    dataX = (dataX + 0.5) * canvasWidth;
-    dataY = (dataY + 0.5) * canvasHeight;
-
-    const screenX = transform.applyX(dataX) + contentOffsetX;
-    const screenY = transform.applyY(dataY) + contentOffsetY;
+    const screenX = t.x;
+    const screenY = t.y;
 
     img.style("left", `${screenX}px`)
       .style("top", `${screenY}px`);
@@ -166,8 +160,8 @@ function addIcons() {
       .style("width", `${size}px`)
       .style("height", `${size}px`)
       .style("transform", "translate(-16px, -16px)")
-      .attr("data-x", icon.position[0] / mapWidth)
-      .attr("data-y", -icon.position[2] / mapHeight);
+      .attr("data-x", icon.position[0])
+      .attr("data-y", -icon.position[2]);
   }
   updateIconPositions();
 }
@@ -194,6 +188,17 @@ function coordinatesFromScreen(screenX, screenY) {
       y = -y;
     }
     return {x: x, z: y};
+}
+
+function screenFromCoordinates(x, z){
+    if( northUp) {
+      x = -x;
+      z = -z;
+    }
+
+    const sx = (canvasWidth  * (x / mapWidth  + 0.5) + contentOffsetX)*zoomTransform.k + zoomTransform.x;
+    const sy = (canvasHeight * (0.5 - z / mapHeight) + contentOffsetY)*zoomTransform.k + zoomTransform.y;
+    return {x: sx, y: sy};
 }
 
 
