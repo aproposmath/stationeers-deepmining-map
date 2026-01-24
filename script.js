@@ -97,6 +97,8 @@ function applySettingsFromQuery(params) {
   if (isEmbed) {
     document.getElementById('fileButtons').style.display = 'none';
     document.getElementById('sidePane').style.display = 'none';
+    document.getElementById('share').style.display = 'none';
+    document.getElementById('github').style.display = 'none';
     const root = document.getElementById('root');
     root.style.margin = '0px';
     root.style.padding = '0px';
