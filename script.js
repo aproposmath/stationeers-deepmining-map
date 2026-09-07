@@ -277,6 +277,7 @@ loadMap(currentPlanet, currentRegionType, false);
 async function loadData(planet) {
 
   const raw = await d3.json(`data/${planet}.json`);
+  raw.custom_locations = JSON.parse(localStorage.getItem("custom_locations"));
   const data = {};
 
   for (const key in raw) {
@@ -513,8 +514,38 @@ async function loadMap(planet, regionType) {
         .style("stroke", "black")
         .style("stroke-width", "2px")
         .style("paint-order", "stroke")
-    });
-
+    });    
+    
+    if(allData.custom_locations) {
+       Object.entries(allData.custom_locations).forEach(([name, coords]) => {
+         let px = coords[0] / mapWidth + 0.5;
+         let py = 1.0 - (coords[1] / mapHeight + 0.5);
+         if (northUp) {
+           px = 1 - px;
+           py = 1 - py;
+          }
+          const [x, y] = [canvasWidth * px, canvasHeight * py]
+          
+          spawn.append("circle")
+          .attr("cx", x)
+          .attr("cy", y)
+          .attr("r", 5)
+          .attr("fill", "red")
+          .attr("stroke", "black")
+          .attr("stroke-width", 1);
+          
+          spawn.append("text")
+          .attr("x", x + 7)
+          .attr("y", y - 7)
+          .text(name)
+          .style("font-size", "14px")
+          .style("fill", "white")
+          .style("stroke", "black")
+          .style("stroke-width", "2px")
+          .style("paint-order", "stroke")
+        });
+      }
+        
     svg.select(".icons").raise();
     updateTransform();
   }
@@ -602,6 +633,26 @@ d3.select("#toggleNorth").on("change", () => {
   if (window.location.search.length > 0)
     window.history.pushState({}, '', window.location.origin + window.location.pathname);
 });
+
+d3.select("#newcoord").on("click",() => {
+  let name = prompt("name");
+  let coords = prompt("x,y");
+  let custom_locations = JSON.parse(getItem("custom_location"));
+  custom_locations["name"] = coords.split(',')
+  
+  localStorage.setItem("custom_locations",JSON.stringify(custom_locations));
+  render();
+})
+
+d3.select("#import").on("click", () => {
+  let data_import = JSON.parse(prompt("json"));
+  localStorage.setItem("custom_locations", JSON.stringify(data_import))
+  render();
+});
+
+d3.select("#export").on("click",() => {
+  prompt("copy me", localStorage.getItem("custom_locations"));
+})
 
 d3.select("#share").on("click", () => {
   getSettingsFromUI();
